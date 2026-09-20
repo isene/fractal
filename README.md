@@ -9,8 +9,8 @@
 Five pictures of one idea: repeat something simple, and watch what it
 settles into. The Mandelbrot set, the Julia set of whatever point you are
 standing on, the logistic map's road into chaos, and the Lorenz and Hénon
-attractors. Drawn in braille, computed when you press a key and never in
-between.
+attractors. Real pixels in glass, or any terminal that shows images,
+braille elsewhere; computed when you press a key and never in between.
 
 ![the Mandelbrot set](img/screenshot-mandelbrot.png)
 
@@ -39,12 +39,19 @@ between.
 
 ## How it draws
 
-A braille cell is 2×4 dots and one colour, which is a choice: the dots
-carry eight times the detail, the colour only one value per cell. So the
-escape-time pictures dither. A dot lights when its own value clears an
-ordered threshold, so the density of lit dots inside a cell tracks the
-field and the colour is that cell's average. Fine structure lands in the
-dots, the broad shape in the colour.
+In glass, or any terminal that shows images, the picture goes through
+[glow](https://github.com/isene/glow) at the size of the window in
+pixels, one value per pixel, and the escape times are worked out on
+every core at once.
+
+Elsewhere it is braille. A cell is 2×4 dots and one colour, which is a
+choice: the dots carry eight times the detail, the colour only one value
+per cell. So the escape-time pictures dither.
+
+A dot lights when its own value clears an ordered threshold, so the
+density of lit dots inside a cell tracks the field and the colour is
+that cell's average. Fine structure lands in the dots, the broad shape
+in the colour.
 
 The attractors do the opposite: every sub-pixel the trajectory touched
 lights up, because dithering would throw away the lonely points that

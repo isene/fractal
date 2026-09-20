@@ -1,4 +1,4 @@
-//! A braille canvas with a value behind every dot.
+//! A canvas with a value behind every dot, or every pixel.
 //!
 //! Everything this app draws is a scalar field: how fast a point escapes,
 //! or how often a trajectory passes through. So the drawing happens in
@@ -40,12 +40,25 @@ pub struct Field {
 
 impl Field {
     pub fn new(cols: usize, rows: usize) -> Field {
-        Field { w: cols * 2, h: rows * 4, v: vec![0.0; cols * 2 * rows * 4] }
+        Field::with_size(cols * 2, rows * 4)
     }
 
-    pub fn set(&mut self, x: usize, y: usize, val: f32) {
-        if x < self.w && y < self.h {
-            self.v[y * self.w + x] = val;
+    /// A field of `w` × `h` values: real pixels, when the picture is.
+    pub fn with_size(w: usize, h: usize) -> Field {
+        Field { w, h, v: vec![0.0; w * h] }
+    }
+
+    /// Colour a canvas of the field's size, one value to one pixel. For
+    /// a scatter (`points`) the pixels never hit stay black.
+    pub fn paint(&self, c: &mut glow::Canvas, points: bool, palette: impl Fn(f32) -> (u8, u8, u8)) {
+        for y in 0..self.h.min(c.h) {
+            for x in 0..self.w.min(c.w) {
+                let v = self.v[y * self.w + x];
+                if points && v <= 0.0 {
+                    continue;
+                }
+                c.put(x, y, palette(v));
+            }
         }
     }
 
@@ -148,6 +161,18 @@ pub fn ramp(t: f32, stops: &[(u8, u8, u8)]) -> (u8, u8, u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paint_colours_a_pixel_per_value_and_leaves_unhit_points_black() {
+        let mut f = Field::with_size(4, 2);
+        f.v[1] = 0.5;
+        f.hit(3, 1);
+        let mut c = glow::Canvas::with_cell(4, 2, (1, 1));
+        f.paint(&mut c, true, |v| if v >= 1.0 { (255, 0, 0) } else { (0, 255, 0) });
+        assert_eq!(&c.rgba[4..7], &[0, 255, 0], "a set value gets its colour");
+        assert_eq!(&c.rgba[(1 * 4 + 3) * 4..][..3], &[255, 0, 0], "a hit gets its colour");
+        assert_eq!(&c.rgba[0..3], &[0, 0, 0], "nothing hit stays black");
+    }
 
     /// A field of ones lights every dot; a field of zeroes lights none.
     #[test]

@@ -2,8 +2,8 @@
 //!
 //! The Mandelbrot set, the Julia set of whatever point you are standing
 //! on, the logistic map's road into chaos, and the Lorenz and Hénon
-//! attractors. All of it drawn in braille, all of it computed when you
-//! press a key and never in between.
+//! attractors. Real pixels where the terminal shows images, braille
+//! elsewhere; all of it computed when you press a key and never in between.
 
 mod canvas;
 mod sets;
@@ -134,6 +134,9 @@ struct App {
     aspect: f64,
     chat: Vec<(String, String)>,
     status: Option<(String, (u8, u8, u8))>,
+    /// The image display, made on the first draw; the picture is real
+    /// pixels where it is supported.
+    pixels: Option<glow::Display>,
 }
 
 const PROJ: [(&str, usize, usize); 3] = [("x-z", 0, 2), ("x-y", 0, 1), ("y-z", 1, 2)];
@@ -147,7 +150,7 @@ fn main() {
                 println!("Usage: fractal [mandelbrot|julia|logistic|lorenz|henon]");
                 println!();
                 println!("The Mandelbrot set, Julia sets, the logistic map's cascade into");
-                println!("chaos, and the Lorenz and Hénon attractors, drawn in braille.");
+                println!("chaos, and the Lorenz and Hénon attractors, in pixels or in braille.");
                 println!("Arrows pan, +/- zoom, j jumps from a point to its Julia set.");
                 return;
             }
@@ -194,6 +197,7 @@ fn main() {
         aspect,
         chat: Vec::new(),
         status: None,
+        pixels: None,
     };
 
     (cols, rows) = draw(&mut app, &mut footer);
@@ -203,7 +207,7 @@ fn main() {
         let i = app.view.ix();
         // A step up or down covers the same ground on screen as a step
         // sideways, which in world units depends on the shape of things.
-        let aspect = plot_aspect(cols, rows);
+        let aspect = app.aspect;
         match key.as_str() {
             "q" | "Q" => break,
             "RIGHT" | "l" => app.frames[i].cx += app.frames[i].span * 0.15,
@@ -346,35 +350,56 @@ fn draw(app: &mut App, footer: &mut Pane) -> (u16, u16) {
         Crust::clear_screen();
     }
     let plot_h = rows.saturating_sub(3).max(1);
-    let aspect = plot_aspect(cols, rows);
+    let pixels = app.pixels.get_or_insert_with(glow::Display::new).supported();
+    let cell = glow::get_cell_size();
+    // The shape of the plot, height over width: in pixels when the
+    // picture is pixels, else in braille dots taken as square.
+    let aspect = if pixels {
+        plot_h as f64 * cell.1 as f64 / (cols as f64 * cell.0 as f64)
+    } else {
+        plot_aspect(cols, rows)
+    };
     app.aspect = aspect;
-    let cells = compute(app, cols as usize, plot_h as usize);
 
     let mut out = String::with_capacity(cols as usize * rows as usize * 12);
-    for (r, row) in cells.iter().enumerate() {
-        out.push_str(&Cursor::at(1, 2 + r as u16));
-        let mut cur: Option<(u8, u8, u8)> = None;
-        for &(ch, rgb) in row {
-            match rgb {
-                Some(c) => {
-                    if cur != Some(c) {
-                        out.push_str(&style::set_fg_rgb(c.0, c.1, c.2));
-                        cur = Some(c);
-                    }
-                }
-                None => {
-                    if cur.is_some() {
-                        out.push_str(style::RESET);
-                        cur = None;
-                    }
-                }
-            }
-            out.push(ch);
+    if pixels {
+        // The picture sits over these rows; they only need to be empty.
+        if let Some(d) = app.pixels.as_mut() { d.clear(1, 1, cols, rows, cols, rows); }
+        for r in 0..plot_h {
+            out.push_str(&Cursor::at(1, 2 + r));
+            out.push_str(seq::ERASE_EOL);
         }
-        out.push_str(style::RESET);
-        out.push_str(seq::ERASE_EOL);
+    } else {
+        let cells = compute(app, cols as usize, plot_h as usize);
+        for (r, row) in cells.iter().enumerate() {
+            out.push_str(&Cursor::at(1, 2 + r as u16));
+            let mut cur: Option<(u8, u8, u8)> = None;
+            for &(ch, rgb) in row {
+                match rgb {
+                    Some(c) => {
+                        if cur != Some(c) {
+                            out.push_str(&style::set_fg_rgb(c.0, c.1, c.2));
+                            cur = Some(c);
+                        }
+                    }
+                    None => {
+                        if cur.is_some() {
+                            out.push_str(style::RESET);
+                            cur = None;
+                        }
+                    }
+                }
+                out.push(ch);
+            }
+            out.push_str(style::RESET);
+            out.push_str(seq::ERASE_EOL);
+        }
     }
     print!("{out}");
+    if pixels {
+        let canvas = compute_pixels(app, cols as usize, plot_h as usize, cell);
+        if let Some(d) = app.pixels.as_mut() { d.show_canvas(&canvas, 1, 2); }
+    }
     draw_header(app, cols, aspect);
     draw_status(app, cols, rows);
     // The keys row is a Pane, and a Pane skips work when the text has
@@ -396,42 +421,49 @@ fn draw(app: &mut App, footer: &mut Pane) -> (u16, u16) {
     (cols, rows)
 }
 
-/// Fill the field for whichever view is on, and colour it.
-fn compute(app: &App, cols: usize, rows: usize) -> Vec<Vec<(char, Option<(u8, u8, u8)>)>> {
-    let mut f = Field::new(cols, rows);
+/// Fill `f` for whichever view is on. `detail` is how many pixels of `f`
+/// stand where one braille dot would; the scatters get that many more
+/// points, so they stay as dense on a fine canvas. Returns whether the
+/// field is a scatter of points, and the palette to colour it with.
+fn fill(app: &App, f: &mut Field, detail: f64) -> (bool, fn(f32) -> (u8, u8, u8)) {
     let (w, h) = (f.w, f.h);
     let fr = app.frame();
     match app.view {
         View::Mandelbrot | View::Julia => {
             let max = app.iterations();
             let julia = app.view == View::Julia;
-            for y in 0..h {
-                for x in 0..w {
-                    let (px, py) = fr.at(x, y, w, h);
-                    let esc = if julia {
-                        sets::julia(px, py, app.jc.0, app.jc.1, max)
-                    } else {
-                        sets::mandelbrot(px, py, max)
-                    };
-                    // Inside reads as full, so the set shows up solid.
-                    // Outside, a logarithm: nearly everything escapes in
-                    // the first few steps, and a linear scale would leave
-                    // all of that crushed into one dark corner.
-                    let v = match esc {
-                        None => 1.0,
-                        Some(mu) => {
-                            // A logarithm to spread the fast escapes,
-                            // then a stiff gamma so the far field goes
-                            // properly dark instead of into a haze of
-                            // one-dot cells.
-                            let t = (1.0 + mu).ln() / (1.0 + max as f64).ln();
-                            (0.9 * t.powf(2.4)) as f32
+            let (jx, jy) = app.jc;
+            // Bands of rows, one per core.
+            let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, h.max(1));
+            let band = h.div_ceil(threads);
+            std::thread::scope(|s| {
+                for (b, rows) in f.v.chunks_mut(w * band).enumerate() {
+                    s.spawn(move || {
+                        for (i, v) in rows.iter_mut().enumerate() {
+                            let (x, y) = (i % w, b * band + i / w);
+                            let (px, py) = fr.at(x, y, w, h);
+                            let esc = if julia {
+                                sets::julia(px, py, jx, jy, max)
+                            } else {
+                                sets::mandelbrot(px, py, max)
+                            };
+                            // Inside reads as full, so the set shows up solid.
+                            // Outside, a logarithm: nearly everything escapes in
+                            // the first few steps, and a linear scale would leave
+                            // all of that crushed into one dark corner. Then a
+                            // stiff gamma so the far field goes properly dark.
+                            *v = match esc {
+                                None => 1.0,
+                                Some(mu) => {
+                                    let t = (1.0 + mu).ln() / (1.0 + max as f64).ln();
+                                    (0.9 * t.powf(2.4)) as f32
+                                }
+                            };
                         }
-                    };
-                    f.set(x, y, v);
+                    });
                 }
-            }
-            f.render(cols, rows, escape_palette)
+            });
+            (false, escape_palette)
         }
         View::Logistic => {
             for x in 0..w {
@@ -445,33 +477,58 @@ fn compute(app: &App, cols: usize, rows: usize) -> Vec<Vec<(char, Option<(u8, u8
                 }
             }
             f.normalise_log();
-            f.render_points(cols, rows, |v| {
-                ramp(lift(v), &[(40, 90, 190), (90, 210, 230), (235, 245, 255)])
-            })
+            (true, logistic_palette)
         }
         View::Lorenz => {
             let (_, a, b) = PROJ[app.proj];
-            for p in sets::lorenz(app.rho, 90_000, 0.004) {
+            // The same stretch of trajectory, in finer steps.
+            for p in sets::lorenz(app.rho, (90_000.0 * detail) as usize, 0.004 / detail) {
                 let q = [p.0, p.1, p.2];
                 let (x, y) = fr.cell(q[a], q[b], w, h);
                 f.hit(x, y);
             }
             f.normalise_log();
-            f.render_points(cols, rows, |v| {
-                ramp(lift(v), &[(150, 50, 130), (255, 140, 60), (255, 245, 210)])
-            })
+            (true, lorenz_palette)
         }
         View::Henon => {
-            for p in sets::henon(app.henon_a, 0.3, 300_000) {
+            for p in sets::henon(app.henon_a, 0.3, (300_000.0 * detail) as usize) {
                 let (x, y) = fr.cell(p.0, p.1, w, h);
                 f.hit(x, y);
             }
             f.normalise_log();
-            f.render_points(cols, rows, |v| {
-                ramp(lift(v), &[(40, 160, 90), (170, 230, 110), (245, 255, 220)])
-            })
+            (true, henon_palette)
         }
     }
+}
+
+/// The picture as braille cells with a colour each.
+fn compute(app: &App, cols: usize, rows: usize) -> Vec<Vec<(char, Option<(u8, u8, u8)>)>> {
+    let mut f = Field::new(cols, rows);
+    let (points, palette) = fill(app, &mut f, 1.0);
+    if points { f.render_points(cols, rows, palette) } else { f.render(cols, rows, palette) }
+}
+
+/// The picture in real pixels, on a canvas of `cols` × `rows` cells of
+/// `cell` pixels.
+fn compute_pixels(app: &App, cols: usize, rows: usize, cell: (u16, u16)) -> glow::Canvas {
+    let mut c = glow::Canvas::with_cell(cols as u16, rows as u16, cell);
+    let mut f = Field::with_size(c.w, c.h);
+    let detail = (c.w * c.h) as f64 / (cols * 2 * rows * 4).max(1) as f64;
+    let (points, palette) = fill(app, &mut f, detail.clamp(1.0, 32.0));
+    f.paint(&mut c, points, palette);
+    c
+}
+
+fn logistic_palette(v: f32) -> (u8, u8, u8) {
+    ramp(lift(v), &[(40, 90, 190), (90, 210, 230), (235, 245, 255)])
+}
+
+fn lorenz_palette(v: f32) -> (u8, u8, u8) {
+    ramp(lift(v), &[(150, 50, 130), (255, 140, 60), (255, 245, 210)])
+}
+
+fn henon_palette(v: f32) -> (u8, u8, u8) {
+    ramp(lift(v), &[(40, 160, 90), (170, 230, 110), (245, 255, 220)])
 }
 
 /// A scatter is mostly cells visited once or twice, and those carry the
@@ -646,10 +703,10 @@ fn show_help(cols: u16, rows: u16) {
            e   save the picture as braille text in ~/fractal.txt\n    \
            c   ask Claude about what is on screen\n    \
            ? q this help · quit\n\n  \
-         A braille cell is 2×4 dots and one colour. The dots are dithered,\n  \
-         so how many light up inside a cell tracks the value there, and the\n  \
-         colour is that cell's average. Fine detail lands in the dots, the\n  \
-         broad shape in the colour.\n\n  \
+         In glass, or any terminal that shows images, the picture is real\n  \
+         pixels. Elsewhere it is braille: a cell is 2×4 dots and one colour,\n  \
+         the dots dithered so their number tracks the value there, and the\n  \
+         colour the cell's average.\n\n  \
          Feigenbaum's δ and the point where the doubling gives way to chaos\n  \
          are worked out while the app runs, not looked up.\n\n  \
          {}",
