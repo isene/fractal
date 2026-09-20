@@ -364,7 +364,6 @@ fn draw(app: &mut App, footer: &mut Pane) -> (u16, u16) {
     let mut out = String::with_capacity(cols as usize * rows as usize * 12);
     if pixels {
         // The picture sits over these rows; they only need to be empty.
-        if let Some(d) = app.pixels.as_mut() { d.clear(1, 1, cols, rows, cols, rows); }
         for r in 0..plot_h {
             out.push_str(&Cursor::at(1, 2 + r));
             out.push_str(seq::ERASE_EOL);
@@ -398,7 +397,7 @@ fn draw(app: &mut App, footer: &mut Pane) -> (u16, u16) {
     print!("{out}");
     if pixels {
         let canvas = compute_pixels(app, cols as usize, plot_h as usize, None);
-        if let Some(d) = app.pixels.as_mut() { d.show_canvas(&canvas, 1, 2); }
+        if let Some(d) = app.pixels.as_mut() { d.swap_canvas(&canvas, 1, 2); }
     }
     draw_header(app, cols, aspect);
     draw_status(app, cols, rows);

@@ -1,6 +1,6 @@
 [package]
 name = "fractal"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 authors = ["Geir Isene <g@isene.com>"]
 description = "Chaos and fractals in the terminal: the Mandelbrot set, Julia sets, the logistic map, and the Lorenz and Henon attractors, drawn in braille. Part of the Fe2O3 suite."
@@ -9,7 +9,7 @@ repository = "https://github.com/isene/fractal"
 
 [dependencies]
 crust = { version = "0.1.46", path = "../crust", package = "fe2o3-crust" }
-glow = { version = "0.1.32", path = "../glow", package = "fe2o3-glow" }
+glow = { version = "0.1.33", path = "../glow", package = "fe2o3-glow" }
 
 [profile.release]
 opt-level = 3
