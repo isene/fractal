@@ -351,11 +351,11 @@ fn draw(app: &mut App, footer: &mut Pane) -> (u16, u16) {
     }
     let plot_h = rows.saturating_sub(3).max(1);
     let pixels = app.pixels.get_or_insert_with(glow::Display::new).supported();
-    let cell = glow::get_cell_size();
     // The shape of the plot, height over width: in pixels when the
     // picture is pixels, else in braille dots taken as square.
     let aspect = if pixels {
-        plot_h as f64 * cell.1 as f64 / (cols as f64 * cell.0 as f64)
+        let (bw, bh) = glow::cell_box(cols, plot_h);
+        bh as f64 / bw as f64
     } else {
         plot_aspect(cols, rows)
     };
@@ -397,7 +397,7 @@ fn draw(app: &mut App, footer: &mut Pane) -> (u16, u16) {
     }
     print!("{out}");
     if pixels {
-        let canvas = compute_pixels(app, cols as usize, plot_h as usize, cell);
+        let canvas = compute_pixels(app, cols as usize, plot_h as usize, None);
         if let Some(d) = app.pixels.as_mut() { d.show_canvas(&canvas, 1, 2); }
     }
     draw_header(app, cols, aspect);
@@ -510,8 +510,8 @@ fn compute(app: &App, cols: usize, rows: usize) -> Vec<Vec<(char, Option<(u8, u8
 
 /// The picture in real pixels, on a canvas of `cols` × `rows` cells of
 /// `cell` pixels.
-fn compute_pixels(app: &App, cols: usize, rows: usize, cell: (u16, u16)) -> glow::Canvas {
-    let mut c = glow::Canvas::with_cell(cols as u16, rows as u16, cell);
+fn compute_pixels(app: &App, cols: usize, rows: usize, cell: Option<(u16, u16)>) -> glow::Canvas {
+    let mut c = glow::Canvas::sized(cols as u16, rows as u16, cell);
     let mut f = Field::with_size(c.w, c.h);
     let detail = (c.w * c.h) as f64 / (cols * 2 * rows * 4).max(1) as f64;
     let (points, palette) = fill(app, &mut f, detail.clamp(1.0, 32.0));
