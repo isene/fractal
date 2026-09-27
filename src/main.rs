@@ -251,6 +251,15 @@ fn main() {
                 Ok(p) => app.say(&format!("wrote {p}"), (140, 220, 140)),
                 Err(e) => app.say(&format!("export: {e}"), ERR_RGB),
             },
+            // Ctrl+A, as in every Fe2O3 app: a full Claude session about
+            // what is on screen, with the talk so far.
+            "C-A" => {
+                if let Some(d) = app.pixels.as_mut() { d.clear_all(); }
+                if !crust::claude_session("Fractal", "I am in fractal, my app of chaos and fractals.", &claude_context(&app)) {
+                    app.say("claude is not on the PATH", ERR_RGB);
+                }
+                Crust::clear_screen();
+            }
             "c" => {
                 let q = footer.ask_or_cancel("ask claude: ", "");
                 print!("{}", Cursor::hide_seq());
@@ -701,6 +710,7 @@ fn show_help(cols: u16, rows: u16) {
          THE REST\n    \
            e   save the picture as braille text in ~/fractal.txt\n    \
            c   ask Claude about what is on screen\n    \
+           ^A  a full Claude session about it\n    \
            ? q this help · quit\n\n  \
          In glass, or any terminal that shows images, the picture is real\n  \
          pixels. Elsewhere it is braille: a cell is 2×4 dots and one colour,\n  \
@@ -757,7 +767,9 @@ fn claude_run(prompt: &str, input: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-fn ask_claude(app: &App, question: &str) -> Result<String, String> {
+/// What the screen shows, for Claude, with the talk so far: the `c`
+/// questions and the Ctrl+A session both start from it.
+fn claude_context(app: &App) -> String {
     let fr = app.frame();
     let mut ctx = format!("On screen: {}.\n", app.view.name());
     match app.view {
@@ -798,6 +810,11 @@ fn ask_claude(app: &App, question: &str) -> Result<String, String> {
             ctx.push_str(&format!("User: {q}\nYou: {a}\n\n"));
         }
     }
+    ctx
+}
+
+fn ask_claude(app: &App, question: &str) -> Result<String, String> {
+    let mut ctx = claude_context(app);
     ctx.push_str(&format!("\nQuestion: {question}\n"));
     claude_run(
         "You are a mathematician answering inside a terminal app about dynamical systems \

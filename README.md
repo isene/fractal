@@ -83,6 +83,7 @@ Or build it: `cargo build --release`. It needs
 | p | Which two Lorenz axes to look at |
 | e | Save the picture as braille text in `~/fractal.txt` |
 | c | Ask Claude about what is on screen |
+| Ctrl-A | A full Claude session about what is on screen, as in every Fe₂O₃ app |
 | r | Redraw from scratch |
 | ? | Help |
 | q | Quit |
