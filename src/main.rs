@@ -441,36 +441,42 @@ fn fill(app: &App, f: &mut Field, detail: f64) -> (bool, fn(f32) -> (u8, u8, u8)
             let max = app.iterations();
             let julia = app.view == View::Julia;
             let (jx, jy) = app.jc;
-            // Bands of rows, one per core.
+            // Bands of rows, one per core. One core, or a web page, which
+            // cannot start threads, paints them all right here.
             let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, h.max(1));
             let band = h.div_ceil(threads);
-            std::thread::scope(|s| {
-                for (b, rows) in f.v.chunks_mut(w * band).enumerate() {
-                    s.spawn(move || {
-                        for (i, v) in rows.iter_mut().enumerate() {
-                            let (x, y) = (i % w, b * band + i / w);
-                            let (px, py) = fr.at(x, y, w, h);
-                            let esc = if julia {
-                                sets::julia(px, py, jx, jy, max)
-                            } else {
-                                sets::mandelbrot(px, py, max)
-                            };
-                            // Inside reads as full, so the set shows up solid.
-                            // Outside, a logarithm: nearly everything escapes in
-                            // the first few steps, and a linear scale would leave
-                            // all of that crushed into one dark corner. Then a
-                            // stiff gamma so the far field goes properly dark.
-                            *v = match esc {
-                                None => 1.0,
-                                Some(mu) => {
-                                    let t = (1.0 + mu).ln() / (1.0 + max as f64).ln();
-                                    (0.9 * t.powf(2.4)) as f32
-                                }
-                            };
+            let paint = |b: usize, rows: &mut [f32]| {
+                for (i, v) in rows.iter_mut().enumerate() {
+                    let (x, y) = (i % w, b * band + i / w);
+                    let (px, py) = fr.at(x, y, w, h);
+                    let esc = if julia {
+                        sets::julia(px, py, jx, jy, max)
+                    } else {
+                        sets::mandelbrot(px, py, max)
+                    };
+                    // Inside reads as full, so the set shows up solid.
+                    // Outside, a logarithm: nearly everything escapes in
+                    // the first few steps, and a linear scale would leave
+                    // all of that crushed into one dark corner. Then a
+                    // stiff gamma so the far field goes properly dark.
+                    *v = match esc {
+                        None => 1.0,
+                        Some(mu) => {
+                            let t = (1.0 + mu).ln() / (1.0 + max as f64).ln();
+                            (0.9 * t.powf(2.4)) as f32
                         }
-                    });
+                    };
                 }
-            });
+            };
+            if threads == 1 {
+                for (b, rows) in f.v.chunks_mut(w * band).enumerate() { paint(b, rows); }
+            } else {
+                std::thread::scope(|s| {
+                    for (b, rows) in f.v.chunks_mut(w * band).enumerate() {
+                        s.spawn(move || paint(b, rows));
+                    }
+                });
+            }
             (false, escape_palette)
         }
         View::Logistic => {
