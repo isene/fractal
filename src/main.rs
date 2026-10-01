@@ -260,7 +260,7 @@ fn main() {
                 }
                 Crust::clear_screen();
             }
-            "c" => {
+            "c" if crust::CLAUDE => {
                 let q = footer.ask_or_cancel("ask claude: ", "");
                 print!("{}", Cursor::hide_seq());
                 std::io::stdout().flush().ok();
@@ -415,7 +415,7 @@ fn draw(app: &mut App, footer: &mut Pane) -> (u16, u16) {
     // so tell it to repaint regardless: one row per keypress, and none
     // at all while the app sits idle.
     footer.full_refresh();
-    footer.say(&style::dim(&if cols < 130 {
+    footer.say(&style::dim(&crust::key_help(if cols < 130 {
         format!("←↓↑→ pan · +/- zoom · 1-5 view · J julia · [ ] {} · ? help · q", app.view.knob())
     } else {
         format!(
@@ -423,7 +423,7 @@ fn draw(app: &mut App, footer: &mut Pane) -> (u16, u16) {
              [ ] {} · p project · e save · c claude · ? help · q",
             app.view.knob()
         )
-    }));
+    })));
     print!("{}", Cursor::hide_seq());
     std::io::stdout().flush().ok();
     (cols, rows)
@@ -728,6 +728,7 @@ fn show_help(cols: u16, rows: u16) {
         style::rgb(&format!("fractal v{VERSION}"), Some(ASK_RGB), None, "b"),
         style::dim("ESC or q closes this.")
     );
+    let help = crust::key_help(help);
     let w = cols.saturating_sub(8).min(78);
     let h = (help.lines().count() as u16 + 1).min(rows.saturating_sub(4));
     let mut p = Popup::centered(w, h, 252, 234);
