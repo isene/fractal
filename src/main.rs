@@ -415,7 +415,7 @@ fn draw(app: &mut App, footer: &mut Pane) -> (u16, u16) {
     // so tell it to repaint regardless: one row per keypress, and none
     // at all while the app sits idle.
     footer.full_refresh();
-    footer.say(&style::dim(&crust::key_help(if cols < 130 {
+    footer.say(&crust::with_version(&style::dim(&crust::key_help(if cols < 130 {
         format!("←↓↑→ pan · +/- zoom · 1-5 view · J julia · [ ] {} · ? help · q", app.view.knob())
     } else {
         format!(
@@ -423,7 +423,7 @@ fn draw(app: &mut App, footer: &mut Pane) -> (u16, u16) {
              [ ] {} · p project · e save · c claude · ? help · q",
             app.view.knob()
         )
-    })));
+    })), footer.w as usize, "fractal", VERSION));
     print!("{}", Cursor::hide_seq());
     std::io::stdout().flush().ok();
     (cols, rows)
